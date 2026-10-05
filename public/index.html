@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TaskFlow – To-Do App</title>
+<style>
+:root{--bg:#f4f5fb;--card:#fff;--text:#1c2030;--muted:#6b7280;--accent:#4f46e5;--line:#e5e7eb;--hi:#ef4444;--md:#f59e0b;--lo:#10b981}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1220;--card:#181c2e;--text:#e8eaf3;--muted:#98a0b8;--line:#2a2f47}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text)}
+main{max-width:680px;margin:0 auto;padding:32px 16px}
+h1{margin:0}
+.sub{color:var(--muted);margin:4px 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
+.bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:8px}
+.bar div{height:100%;background:var(--accent);width:0;transition:width .3s}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+input,select{padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+#title{flex:1;min-width:180px}
+button{padding:10px 14px;border:0;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer;font:inherit}
+.tabs button{background:transparent;color:var(--muted);padding:6px 12px}
+.tabs button.on{background:var(--accent);color:#fff}
+ul{list-style:none;padding:0;margin:12px 0 0}
+li{display:flex;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--line)}
+li input{width:18px;height:18px;padding:0}
+.main{flex:1}
+.name{cursor:text}
+li.done .name{text-decoration:line-through;color:var(--muted)}
+.meta{font-size:12px;color:var(--muted);margin-top:2px}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;color:#fff;font-size:11px;margin-right:6px}
+.high{background:var(--hi)}.medium{background:var(--md)}.low{background:var(--lo)}
+.over{color:var(--hi);font-weight:600}
+.x{background:transparent;color:var(--muted);padding:4px 8px}
+.empty{color:var(--muted);text-align:center;padding:20px 0}
+footer{color:var(--muted);font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<main>
+  <h1>✅ TaskFlow</h1>
+  <p class="sub">Plan your day. Tasks are saved on the server.</p>
+
+  <div class="card">
+    <div id="stats"><b id="count">0 of 0 done</b></div>
+    <div class="bar"><div id="fill"></div></div>
+  </div>
+
+  <div class="card">
+    <form id="f" class="row">
+      <input id="title" placeholder="What needs doing?" maxlength="200" required>
+      <select id="pri"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select>
+      <input id="due" type="date">
+      <button>Add</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div class="tabs row" id="tabs">
+        <button data-f="all" class="on">All</button>
+        <button data-f="active">Active</button>
+        <button data-f="done">Done</button>
+      </div>
+      <input id="q" placeholder="Search…" style="width:140px">
+    </div>
+    <ul id="list"></ul>
+    <div class="row" style="justify-content:flex-end;margin-top:12px">
+      <button class="x" id="clear">Clear completed</button>
+    </div>
+  </div>
+
+  <footer id="srv"></footer>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let todos = [], filter = 'all';
+const rank = {high:0, medium:1, low:2};
+const api = (url, method, body) => fetch(url, {method, headers:{'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : undefined});
+const today = () => new Date().toISOString().slice(0,10);
+
+async function load(){ todos = await (await fetch('/api/todos')).json(); render(); }
+
+function render(){
+  const q = $('q').value.toLowerCase();
+  const list = todos
+    .filter(t => filter === 'all' || (filter === 'done') === t.done)
+    .filter(t => t.title.toLowerCase().includes(q))
+    .sort((a,b) => a.done - b.done || rank[a.priority] - rank[b.priority] || (a.due||'9').localeCompare(b.due||'9'));
+  const ul = $('list'); ul.innerHTML = '';
+  if (!list.length){ ul.innerHTML = '<div class="empty">Nothing here 🎉</div>'; }
+  list.forEach(t => {
+    const li = document.createElement('li'); if (t.done) li.className = 'done';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = t.done;
+    cb.onchange = async () => { await api('/api/todos/' + t.id, 'PATCH', {done: cb.checked}); load(); };
+    const box = document.createElement('div'); box.className = 'main';
+    const name = document.createElement('div'); name.className = 'name'; name.textContent = t.title;
+    name.ondblclick = async () => { const v = prompt('Edit task', t.title); if (v) { await api('/api/todos/' + t.id, 'PATCH', {title: v}); load(); } };
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const tag = document.createElement('span'); tag.className = 'tag ' + t.priority; tag.textContent = t.priority;
+    meta.append(tag);
+    if (t.due){ const d = document.createElement('span'); d.textContent = 'Due ' + t.due; if (!t.done && t.due < today()){ d.className = 'over'; d.textContent += ' (overdue)'; } meta.append(d); }
+    box.append(name, meta);
+    const completeBtn = document.createElement('button'); completeBtn.className = 'x'; completeBtn.textContent = t.done ? 'Undo' : 'Complete';
+    completeBtn.onclick = async () => { await api('/api/todos/' + t.id, 'PATCH', {done: !t.done}); load(); };
+    const del = document.createElement('button'); del.className = 'x'; del.textContent = '✕';
+    del.onclick = async () => { await api('/api/todos/' + t.id, 'DELETE'); load(); };
+    li.append(cb, box, completeBtn, del); ul.append(li);
+  });
+  const done = todos.filter(t => t.done).length;
+  $('count').textContent = done + ' of ' + todos.length + ' done';
+  $('fill').style.width = (todos.length ? done / todos.length * 100 : 0) + '%';
+}
+
+$('f').onsubmit = async e => {
+  e.preventDefault();
+  await api('/api/todos', 'POST', {title: $('title').value, priority: $('pri').value, due: $('due').value});
+  $('title').value = ''; $('due').value = ''; load();
+};
+$('tabs').onclick = e => { if (!e.target.dataset.f) return; filter = e.target.dataset.f; [...$('tabs').children].forEach(b => b.classList.toggle('on', b === e.target)); render(); };
+$('q').oninput = render;
+$('clear').onclick = async () => { await api('/api/todos/completed', 'DELETE'); load(); };
+
+async function srv(){ try { const d = await (await fetch('/api/info')).json(); $('srv').textContent = 'Served by ' + d.hostname + ' · up ' + d.uptimeSec + 's'; } catch {} }
+load(); srv(); setInterval(srv, 5000);
+</script>
+</body>
+</html>
